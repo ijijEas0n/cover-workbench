@@ -5,6 +5,8 @@
 
 ## 目标与验证状态
 
+**GitHub**：仓库 https://github.com/ijijEas0n/cover-workbench （public，main）。GitHub Actions 自动部署 Pages：https://ijijeas0n.github.io/cover-workbench/ （在线工作台，图片本地处理不传服务器）。push 触发 `.github/workflows/pages.yml`。测试素材（人脸/产品图）在 `test/private/`（gitignore，不入库），`test/src.png` 为合成测试图。git 仓库级 user.name/email 已配（ijijEas0n noreply）。
+
 已完成并验证：
 - ✅ 双比例渲染（1080×1440 竖屏 3:4 / 1440×1080 横屏 4:3）
 - ✅ 压暗（dark=0.62 黑半透明叠加）、降饱和（sat=0.8）、亮度（bri=1.0）
