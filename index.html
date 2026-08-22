@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>封面工作台</title>
+<style>
+  :root{
+    --bg:#111318; --panel:#1a1d24; --panel2:#22262f; --line:#2e3340;
+    --text:#e8eaed; --dim:#9aa0ac; --acc:#5b8cff;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{background:var(--bg); color:var(--text); font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; height:100vh; display:flex; overflow:hidden;}
+  aside{width:360px; min-width:360px; background:var(--panel); border-right:1px solid var(--line); overflow-y:auto; padding:18px 18px 40px;}
+  main{flex:1; min-width:0; overflow:hidden; padding:16px; display:flex; align-items:center; justify-content:center; gap:24px;}
+  h1{font-size:16px; margin-bottom:2px;}
+  .sub{color:var(--dim); font-size:11px; margin-bottom:14px; line-height:1.6;}
+  .group{margin-bottom:16px; padding-bottom:14px; border-bottom:1px solid var(--line);}
+  .group:last-of-type{border-bottom:none;}
+  .group h3{font-size:12px; color:var(--dim); margin-bottom:8px; font-weight:600; letter-spacing:.5px;}
+  label{display:block; font-size:12px; color:var(--dim); margin-bottom:5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  textarea,input[type=text],select{width:100%; background:var(--panel2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:8px 10px; font-size:13px;}
+  textarea{font-family:inherit; line-height:1.5; resize:vertical;}
+  input[type=range]{width:100%; accent-color:var(--acc); margin:0;}
+  .ctl{margin-bottom:10px;}
+  .slider-row{display:flex; align-items:center; gap:8px;}
+  .slider-row input{flex:1;}
+  .val{font-size:12px; color:var(--acc); min-width:44px; text-align:right; font-variant-numeric:tabular-nums;}
+  .switch{display:flex; align-items:center; gap:8px; font-size:12px; color:var(--dim); cursor:pointer; margin-bottom:10px;}
+  .switch input{accent-color:var(--acc); margin:0;}
+  .btns{display:flex; gap:8px; margin-top:4px;}
+  button{flex:1; background:var(--panel2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:9px 0; font-size:13px; cursor:pointer;}
+  button:hover{border-color:var(--acc);}
+  button.primary{background:var(--acc); border-color:var(--acc); color:#fff; font-weight:600;}
+  button.small{flex:0 0 auto; padding:6px 10px; font-size:12px;}
+  .drop{height:150px; border:2px dashed var(--line); border-radius:10px; display:flex; align-items:center; justify-content:center; color:var(--dim); font-size:13px; text-align:center; cursor:pointer; transition:border-color .2s,background .2s; overflow:hidden;}
+  .drop.dragover{border-color:var(--acc); background:rgba(91,140,255,.08);}
+  .drop img{max-width:100%; max-height:100%; border-radius:6px; object-fit:contain;}
+  .lineinfo{font-size:11px; color:var(--dim); margin-top:6px; line-height:1.6;}
+  details.adv{border-top:1px solid var(--line); margin-top:16px; padding-top:12px;}
+  details.adv summary{font-size:12px; color:var(--dim); cursor:pointer; font-weight:600; letter-spacing:.5px; user-select:none; padding:2px 0;}
+  details.adv[open] summary{margin-bottom:12px; color:var(--text);}
+  .preview{display:flex; flex-direction:column; align-items:center; gap:6px; flex:none; min-width:0;}
+  .preview .tag{font-size:12px; color:var(--dim); white-space:nowrap;}
+  .preview .tag b{color:var(--text); font-weight:600;}
+  canvas{background:#000; border-radius:8px; box-shadow:0 8px 30px rgba(0,0,0,.5); cursor:grab; width:auto; height:auto;}
+  canvas:active{cursor:grabbing;}
+  .ph{color:var(--dim); font-size:12px; opacity:.6; margin-top:6px; white-space:nowrap;}
+  .hidden{display:none!important;}
+</style>
+</head>
+<body>
+
+<aside>
+  <h1>封面工作台</h1>
+  <div class="sub">拖入图片 → 输入标题 → 导出 3:4 + 4:3 两张封面<br>风格不够好看？右上「样式」一键切换</div>
+
+  <div class="group">
+    <h3>图片</h3>
+    <div class="drop" id="drop">拖入图片，或点击选择<br><small>PNG / JPG</small></div>
+    <input type="file" id="file" accept="image/*" class="hidden">
+    <div class="btns" style="margin-top:8px;">
+      <button class="small" id="resetAll">重置裁剪</button>
+    </div>
+  </div>
+
+  <div class="group">
+    <h3>标题</h3>
+    <textarea id="title" rows="3" placeholder="输入标题，换行 = 手动分行"></textarea>
+    <label class="switch"><input type="checkbox" id="autoSplit" checked> 自动分行（每行 ≤5 字自动断行）</label>
+    <div class="lineinfo" id="lineInfo"></div>
+  </div>
+
+  <div class="group">
+    <h3>样式</h3>
+    <select id="presetSel">
+      <option value="">— 一键切换风格 —</option>
+      <option value="default">默认款（白字 · 宋体）</option>
+      <option value="capcut-light">剪映款（白盒 · 黑体）</option>
+      <option value="darkbox">暗盒款（黑盒 · 宋体）</option>
+    </select>
+  </div>
+
+  <div class="group">
+    <h3>导出</h3>
+    <div class="btns">
+      <button class="primary" id="exportJpg">导出 JPG（3:4 + 4:3）</button>
+    </div>
+    <div class="btns" style="margin-top:8px;">
+      <button class="small" id="exportPreset">导出参数</button>
+      <button class="small" id="importParams">导入参数</button>
+      <input type="file" id="importFile" accept="application/json" class="hidden">
+    </div>
+    <div class="lineinfo" style="margin-top:8px;" id="exportInfo"></div>
+  </div>
+
+  <details class="adv">
+    <summary>高级 · 文字</summary>
+    <div class="ctl"><label>自动分行 · 每行最多字</label>
+      <div class="slider-row"><input type="range" id="maxChars" min="2" max="10" value="5"><span class="val" id="maxCharsV">5</span></div>
+    </div>
+    <div class="ctl"><label>字号微调（×）</label>
+      <div class="slider-row"><input type="range" id="boost" min="0.5" max="1.5" step="0.05" value="1"><span class="val" id="boostV">1.0</span></div>
+    </div>
+    <div class="ctl"><label>行高</label>
+      <div class="slider-row"><input type="range" id="lh" min="1.0" max="2.0" step="0.05" value="1.45"><span class="val" id="lhV">1.45</span></div>
+    </div>
+    <div class="ctl"><label>字距</label>
+      <div class="slider-row"><input type="range" id="ls" min="0" max="40" step="1" value="8"><span class="val" id="lsV">8</span></div>
+    </div>
+    <div class="ctl"><label>水平位置</label>
+      <div class="slider-row"><input type="range" id="textX" min="0.2" max="0.8" step="0.01" value="0.5"><span class="val" id="textXV">50%</span></div>
+    </div>
+    <div class="ctl"><label>垂直位置</label>
+      <div class="slider-row"><input type="range" id="textY" min="0.15" max="0.85" step="0.01" value="0.5"><span class="val" id="textYV">50%</span></div>
+    </div>
+    <div class="ctl"><label>粗体权重</label>
+      <div class="slider-row"><input type="range" id="weight" min="400" max="900" step="100" value="900"><span class="val" id="weightV">900</span></div>
+    </div>
+    <div class="ctl"><label>字体</label>
+      <select id="fontSel">
+        <option value="serif">宋体（Songti）</option>
+        <option value="sans">黑体（剪映款）</option>
+      </select>
+    </div>
+    <label class="switch"><input type="checkbox" id="shadow"> 文字阴影</label>
+  </details>
+
+  <details class="adv">
+    <summary>高级 · 文本框</summary>
+    <label class="switch"><input type="checkbox" id="boxShow"> 显示盒子背景</label>
+    <div class="ctl"><label>盒子样式</label>
+      <select id="boxStyle">
+        <option value="dark">黑盒（字幕条）</option>
+        <option value="light">白盒</option>
+        <option value="outline">描边</option>
+        <option value="none">无盒（仅白字）</option>
+      </select>
+    </div>
+    <div class="ctl"><label>透明度</label>
+      <div class="slider-row"><input type="range" id="boxAlpha" min="0.08" max="0.9" step="0.02" value="0.32"><span class="val" id="boxAlphaV">32%</span></div>
+    </div>
+    <div class="ctl"><label>内边距</label>
+      <div class="slider-row"><input type="range" id="boxPad" min="0" max="0.3" step="0.02" value="0.16"><span class="val" id="boxPadV">0.16</span></div>
+    </div>
+    <div class="ctl"><label>圆角</label>
+      <div class="slider-row"><input type="range" id="boxRound" min="0" max="40" step="1" value="14"><span class="val" id="boxRoundV">14</span></div>
+    </div>
+    <div class="ctl"><label>文字颜色</label>
+      <select id="textColor">
+        <option value="white">白色</option>
+        <option value="black">黑色</option>
+      </select>
+    </div>
+  </details>
+
+  <details class="adv">
+    <summary>高级 · 背景</summary>
+    <label class="switch"><input type="checkbox" id="autoDark"> 自动暗度（按图片亮度自适应）</label>
+    <div class="ctl"><label>暗度（自动关闭时生效）</label>
+      <div class="slider-row"><input type="range" id="dark" min="0" max="0.9" step="0.01" value="0.62"><span class="val" id="darkV">62%</span></div>
+    </div>
+    <div class="ctl"><label>饱和度</label>
+      <div class="slider-row"><input type="range" id="sat" min="0" max="1" step="0.01" value="0.8"><span class="val" id="satV">80%</span></div>
+    </div>
+    <div class="ctl"><label>亮度</label>
+      <div class="slider-row"><input type="range" id="bri" min="0.6" max="1.4" step="0.01" value="1.0"><span class="val" id="briV">1.0</span></div>
+    </div>
+    <div class="ctl"><label>模糊</label>
+      <div class="slider-row"><input type="range" id="blur" min="0" max="30" step="1" value="0"><span class="val" id="blurV">0</span></div>
+    </div>
+  </details>
+</aside>
+
+<main>
+  <div class="preview">
+    <div class="tag">3:4 · <b>1080×1440</b> 竖屏</div>
+    <canvas id="cv-3x4" width="1080" height="1440"></canvas>
+    <div class="ph"><b>单击标题</b> 拖动挪位置 · 拖<b>右下角圆圈</b>改大小 · 滚轮缩放 · 双击复位</div>
+  </div>
+  <div class="preview">
+    <div class="tag">4:3 · <b>1440×1080</b> 横屏</div>
+    <canvas id="cv-4x3" width="1440" height="1080"></canvas>
+    <div class="ph"><b>单击标题</b> 拖动挪位置 · 拖<b>右下角圆圈</b>改大小 · 滚轮缩放 · 双击复位</div>
+  </div>
+</main>
+
+<script>
+"use strict";
+
+const SIZES = { '3x4': [1080, 1440], '4x3': [1440, 1080] };
+const FONT_SERIF = '"Songti SC","Noto Serif SC","Source Han Serif SC","STSong",serif';
+const FONT_SANS = '"PingFang SC","Noto Sans SC","Source Han Sans SC","Hiragino Sans GB","Microsoft YaHei",sans-serif';
+const fontStack = () => state.font === 'sans' ? FONT_SANS : FONT_SERIF;
+
+const state = {
+  title: '找对标\n五个标准',
+  autoSplit: true,
+  maxChars: 5,
+  boost: 1.0,
+  lh: 1.45,
+  ls: 8,
+  textX: 0.5,
+  textY: 0.5,
+  weight: 900,
+  font: 'serif',
+  shadow: true,
+  boxShow: false,
+  boxStyle: 'none',
+  boxAlpha: 0.32,
+  boxPad: 0.16,
+  boxRound: 14,
+  boxW: 0.84,
+  textColor: 'white',
+  autoDark: true,
+  dark: 0.62,
+  sat: 0.8,
+  bri: 1.0,
+  blur: 0,
+  crops: { '3x4': { zoom: 1, offX: 0, offY: 0 }, '4x3': { zoom: 1, offX: 0, offY: 0 } }
+};
+const LSK = 'cover-workbench-v2';   // v2：之前 v1 缓存过旧参数（0.80/1.55/28），换 key 让默认值干净
+let img = null;
+let imgName = '';
+let sel = false;   // 标题块选中态（画布拖拽交互用）
+let autoDarkVal = 0.62;   // 自动暗度缓存（setImage 时按平均亮度算）
+
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+const canvases = { '3x4': $('cv-3x4'), '4x3': $('cv-4x3') };
+const cxs = { '3x4': canvases['3x4'].getContext('2d'), '4x3': canvases['4x3'].getContext('2d') };
+
+function isAscii(ch) { return /[\x00-\x7F]/.test(ch); }
+// 平衡分行：断点避开字母/数字串内部（如「日更100条」不会拆成「日更1/00条」）
+function balanced(p, m) {
+  if (p.length <= m) return [p];
+  // 可断点 = 相邻字符类型变化处（汉字↔非汉字）
+  const pts = [];
+  for (let i = 1; i < p.length; i++) {
+    if (isAscii(p[i - 1]) === isAscii(p[i])) continue;
+    pts.push(i);
+  }
+  if (!pts.length) {
+    // 纯汉字/纯 ASCII：按 m 硬切（原算法）
+    const n = Math.ceil(p.length / m);
+    const base = Math.floor(p.length / n), rem = p.length % n;
+    const arr = []; let i = 0;
+    for (let k = 0; k < n; k++) {
+      const len = base + (k < rem ? 1 : 0);
+      arr.push(p.slice(i, i + len)); i += len;
+    }
+    return arr;
+  }
+  const n = Math.ceil(p.length / m);
+  const cuts = [];
+  for (let k = 1; k < n; k++) {
+    const t = Math.round(p.length * k / n);
+    let best = pts[0];
+    for (const q of pts) if (Math.abs(q - t) < Math.abs(best - t)) best = q;
+    cuts.push(best);
+  }
+  cuts.sort((a, b) => a - b);
+  const arr = []; let i = 0;
+  for (const c of cuts) { if (c > i && c < p.length) { arr.push(p.slice(i, c)); i = c; } }
+  arr.push(p.slice(i));
+  return arr.filter(s => s.length);
+}
+function layoutLines() {
+  const paras = state.title.split('\n').map(s => s.trim()).filter(Boolean);
+  const out = [];
+  for (const p of paras) out.push(...(state.autoSplit ? balanced(p, state.maxChars) : [p]));
+  return out.slice(0, 6);
+}
+// 计算标题块：字号拟合 + 外接矩形（渲染与拖拽交互共用）
+function computeTitle(ratio) {
+  const [W, H] = SIZES[ratio];
+  const lines = layoutLines();
+  if (!img || !lines.length) return null;
+  const boxOn = !!state.boxShow && state.boxStyle !== 'none';
+  const effW = W * state.boxW;               // 有盒=盒宽；无盒=文字宽度参考（拖角可调字号）
+  const pad = state.boxPad || 0;
+  const maxBlockH = H * 0.78;
+  const cap = Math.min(W * 0.26, 260);
+  const ctx = cxs[ratio];
+  ctx.font = `900 1px ${fontStack()}`;
+  if ('letterSpacing' in ctx) ctx.letterSpacing = `${state.ls * (W / 1080)}px`;
+  const fits = s => {
+    ctx.font = `${state.weight} ${s}px ${fontStack()}`;
+    const widest = Math.max(...lines.map(l => ctx.measureText(l).width));
+    return widest <= effW - 2 * pad * s && (lines.length * state.lh + 2 * pad) * s <= maxBlockH;
+  };
+  let lo = 20, hi = Math.round(cap);
+  while (hi - lo > 1) {
+    const m = (lo + hi) >> 1;
+    if (fits(m)) lo = m; else hi = m;
+  }
+  let size = Math.round(lo * state.boost);
+  size = clamp(size, 20, Math.round(cap * 1.5));
+  const lh = size * state.lh;
+  const totalH = lines.length * lh;
+  const cx = W * state.textX;
+  const cy = H * state.textY;
+  const bw = effW;
+  const bh = boxOn ? totalH + 2 * pad * size : totalH;
+  const rect = { x0: cx - bw / 2, y0: cy - bh / 2, x1: cx + bw / 2, y1: cy + bh / 2 };
+  return { lines, size, lh, totalH, cx, cy, boxOn, effW, pad, rect };
+}
+function drawTitleBlock(ratio, t) {
+  const [W, H] = SIZES[ratio];
+  const ctx = cxs[ratio];
+  const { lines, size, lh, totalH, cx, cy, boxOn, effW, pad, rect } = t;
+  if (boxOn) {
+    const r = state.boxRound * (W / 1080);
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(rect.x0, rect.y0, rect.x1 - rect.x0, rect.y1 - rect.y0, r); else ctx.rect(rect.x0, rect.y0, rect.x1 - rect.x0, rect.y1 - rect.y0);
+    if (state.boxStyle === 'dark') {
+      ctx.fillStyle = `rgba(0,0,0,${state.boxAlpha})`;
+      ctx.fill();
+    } else if (state.boxStyle === 'light') {
+      ctx.fillStyle = `rgba(255,255,255,${state.boxAlpha})`;
+      ctx.fill();
+    } else if (state.boxStyle === 'outline') {
+      ctx.strokeStyle = `rgba(255,255,255,${Math.max(state.boxAlpha, 0.6)})`;
+      ctx.lineWidth = Math.max(2, size * 0.03);
+      ctx.stroke();
+    }
+  }
+  ctx.font = `${state.weight} ${size}px ${fontStack()}`;
+  if ('letterSpacing' in ctx) ctx.letterSpacing = `${state.ls * (W / 1080)}px`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  if (state.shadow) {
+    ctx.shadowColor = 'rgba(0,0,0,.5)';
+    ctx.shadowBlur = size * 0.25;
+  }
+  ctx.fillStyle = state.textColor === 'black' ? '#111111' : '#ffffff';
+  const startY = cy - totalH / 2 + lh / 2;
+  const x = cx - (('letterSpacing' in ctx) ? state.ls * (W / 1080) / 2 : 0);
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i], x, startY + i * lh);
+  }
+  ctx.shadowBlur = 0;
+}
+// 选中框（蓝色虚线 + 右下角圆形手柄）
+function drawSelection(ratio) {
+  const [W, H] = SIZES[ratio];
+  const ctx = cxs[ratio];
+  const t = computeTitle(ratio);
+  if (!t) return;
+  const { rect } = t;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(91,140,255,.95)';
+  ctx.setLineDash([12, 9]);
+  ctx.lineWidth = Math.max(2, W / 540);
+  ctx.strokeRect(rect.x0, rect.y0, rect.x1 - rect.x0, rect.y1 - rect.y0);
+  ctx.setLineDash([]);
+  const hr = 16 * (W / 1080) + 4;
+  ctx.fillStyle = '#5b8cff';
+  ctx.beginPath(); ctx.arc(rect.x1, rect.y1, hr, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = Math.max(2, W / 540);
+  ctx.stroke();
+  ctx.restore();
+}
+function drawCanvas(ratio) {
+  const [W, H] = SIZES[ratio];
+  const cv = canvases[ratio], ctx = cxs[ratio];
+  const crop = state.crops[ratio];
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  if (!img) {
+    // 无图时只画占位提示，不渲染标题（修复标题叠在占位文字上的问题）
+    ctx.fillStyle = '#1a1d24';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#4a5261';
+    ctx.font = `${Math.round(W * 0.04)}px -apple-system,sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('拖入图片开始', W / 2, H / 2);
+    ctx.restore();
+    return;
+  }
+  let s = Math.max(W / img.width, H / img.height) * crop.zoom;
+  if (state.blur > 0) s *= 1 + state.blur * 0.008;
+  const dw = img.width * s, dh = img.height * s;
+  const maxX = (dw - W) / 2, maxY = (dh - H) / 2;
+  const ox = clamp(crop.offX, -maxX, maxX), oy = clamp(crop.offY, -maxY, maxY);
+  const fx = [];
+  if (state.bri !== 1) fx.push(`brightness(${state.bri})`);
+  if (state.sat !== 1) fx.push(`saturate(${state.sat})`);
+  if (state.blur > 0) fx.push(`blur(${state.blur}px)`);
+  if (fx.length) ctx.filter = fx.join(' ');
+  ctx.drawImage(img, (W - dw) / 2 + ox, (H - dh) / 2 + oy, dw, dh);
+  ctx.filter = 'none';
+  if (state.autoDark) {
+    ctx.fillStyle = `rgba(0,0,0,${autoDarkVal})`;
+    ctx.fillRect(0, 0, W, H);
+  } else if (state.dark > 0) {
+    ctx.fillStyle = `rgba(0,0,0,${state.dark})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+  const t = computeTitle(ratio);
+  if (t) drawTitleBlock(ratio, t);
+  if (sel) drawSelection(ratio);
+  ctx.restore();
+}
+function render() {
+  drawCanvas('3x4');
+  drawCanvas('4x3');
+  updateLineInfo();
+}
+
+function updateLineInfo() {
+  const lines = layoutLines();
+  $('lineInfo').textContent = `共 ${lines.length} 行：` + lines.map(l => l.length + '字').join(' / ');
+}
+function updateLabels() {
+  $('maxCharsV').textContent = state.maxChars;
+  $('boostV').textContent = state.boost.toFixed(2);
+  $('lhV').textContent = state.lh.toFixed(2);
+  $('lsV').textContent = state.ls;
+  $('textXV').textContent = Math.round(state.textX * 100) + '%';
+  $('textYV').textContent = Math.round(state.textY * 100) + '%';
+  $('weightV').textContent = state.weight;
+  $('boxAlphaV').textContent = Math.round(state.boxAlpha * 100) + '%';
+  $('boxPadV').textContent = state.boxPad.toFixed(2);
+  $('boxRoundV').textContent = state.boxRound;
+  $('darkV').textContent = Math.round(state.dark * 100) + '%';
+  $('satV').textContent = Math.round(state.sat * 100) + '%';
+  $('briV').textContent = state.bri.toFixed(2);
+  $('blurV').textContent = state.blur;
+}
+function syncUI() {
+  $('title').value = state.title;
+  $('autoSplit').checked = state.autoSplit;
+  $('maxChars').value = state.maxChars;
+  $('boost').value = state.boost;
+  $('lh').value = state.lh;
+  $('ls').value = state.ls;
+  $('textX').value = state.textX;
+  $('textY').value = state.textY;
+  $('weight').value = state.weight;
+  $('fontSel').value = state.font;
+  $('shadow').checked = state.shadow;
+  $('boxShow').checked = state.boxShow;
+  $('boxStyle').value = state.boxStyle;
+  $('boxAlpha').value = state.boxAlpha;
+  $('boxPad').value = state.boxPad;
+  $('boxRound').value = state.boxRound;
+  $('textColor').value = state.textColor;
+  $('dark').value = state.dark;
+  $('autoDark').checked = state.autoDark;
+  $('sat').value = state.sat;
+  $('bri').value = state.bri;
+  $('blur').value = state.blur;
+  updateLabels();
+}
+
+const bind = (id, key, fn) => {
+  const el = $(id);
+  const apply = () => {
+    const v = fn(el.value);
+    state[key] = v;
+    updateLabels();
+    render();
+  };
+  el.addEventListener('input', apply);
+};
+
+bind('maxChars', 'maxChars', v => parseInt(v, 10));
+bind('boost', 'boost', v => parseFloat(v));
+bind('lh', 'lh', v => parseFloat(v));
+bind('ls', 'ls', v => parseInt(v, 10));
+bind('textX', 'textX', v => parseFloat(v));
+bind('textY', 'textY', v => parseFloat(v));
+bind('weight', 'weight', v => parseInt(v, 10));
+bind('boxAlpha', 'boxAlpha', v => parseFloat(v));
+bind('boxPad', 'boxPad', v => parseFloat(v));
+bind('boxRound', 'boxRound', v => parseInt(v, 10));
+bind('dark', 'dark', v => parseFloat(v));
+bind('sat', 'sat', v => parseFloat(v));
+bind('bri', 'bri', v => parseFloat(v));
+bind('blur', 'blur', v => parseInt(v, 10));
+$('autoSplit').addEventListener('change', e => { state.autoSplit = e.target.checked; render(); });
+$('shadow').addEventListener('change', e => { state.shadow = e.target.checked; render(); });
+$('boxShow').addEventListener('change', e => { state.boxShow = e.target.checked; render(); });
+$('autoDark').addEventListener('change', e => { state.autoDark = e.target.checked; render(); });
+$('boxStyle').addEventListener('change', e => { state.boxStyle = e.target.value; render(); });
+$('textColor').addEventListener('change', e => { state.textColor = e.target.value; render(); });
+$('fontSel').addEventListener('change', e => { state.font = e.target.value; render(); });
+$('title').addEventListener('input', e => { state.title = e.target.value; render(); });
+
+function computeAutoDark(im) {
+  const c = document.createElement('canvas');
+  c.width = 32; c.height = 32;
+  const cx = c.getContext('2d');
+  cx.drawImage(im, 0, 0, 32, 32);
+  const d = cx.getImageData(0, 0, 32, 32).data;
+  let sum = 0;
+  for (let i = 0; i < d.length; i += 4) sum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+  const L = sum / 1024;
+  return clamp(0.3 + (L / 255) * 0.5, 0.25, 0.7);   // 暗图少压亮图多压
+}
+function setImageFromDataUrl(dataUrl, name) {
+  return new Promise((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => {
+      img = im; imgName = name || '';
+      autoDarkVal = computeAutoDark(im);
+      render(); showDropImg(); resolve();
+    };
+    im.onerror = reject;
+    im.src = dataUrl;
+  });
+}
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+async function loadFile(file) {
+  if (!file.type.startsWith('image/')) return;
+  const data = await fileToDataUrl(file);
+  await setImageFromDataUrl(data, file.name);
+}
+const drop = $('drop');
+drop.addEventListener('click', () => $('file').click());
+$('file').addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); e.target.value = ''; });
+['dragover', 'dragenter'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('dragover'); }));
+['dragleave', 'drop'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); if (ev === 'dragleave') drop.classList.remove('dragover'); }));
+window.addEventListener('drop', e => {
+  drop.classList.remove('dragover');
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('image/')) loadFile(f);
+});
+function showDropImg() {
+  if (img) {
+    drop.style.padding = '6px';
+    drop.innerHTML = `<img src="" style="width:auto;height:110px;max-width:100%;object-fit:contain;border-radius:4px">`;
+    drop.querySelector('img').src = img.src;
+  } else {
+    drop.innerHTML = '拖入图片，或点击选择<br><small>PNG / JPG</small>';
+    drop.style.padding = '';
+  }
+}
+
+function cropHandler(ratio, cv) {
+  let mode = null;   // 'crop' | 'title' | 'handle'
+  let sx = 0, sy = 0, sox = 0, soy = 0;              // crop 拖拽基准
+  let baseTX = 0, baseTY = 0, p0x = 0, p0y = 0;      // 标题拖拽基准（增量）
+  const [W, H] = SIZES[ratio];
+  const toLogical = e => ({
+    x: (e.clientX - cv.getBoundingClientRect().left) * (W / cv.clientWidth),
+    y: (e.clientY - cv.getBoundingClientRect().top) * (H / cv.clientHeight)
+  });
+  const inRect = (p, r, pad) => p.x >= r.x0 - pad && p.x <= r.x1 + pad && p.y >= r.y0 - pad && p.y <= r.y1 + pad;
+  const handleRadius = () => 16 * (W / 1080) + 12;
+  const hitHandle = (p, r) => r && Math.hypot(p.x - r.x1, p.y - r.y1) <= handleRadius();
+  cv.addEventListener('pointerdown', e => {
+    const p = toLogical(e);
+    const t = computeTitle(ratio);
+    if (t) {
+      if (sel && hitHandle(p, t.rect)) {
+        mode = 'handle'; p0x = p.x;
+      } else if (inRect(p, t.rect, 8)) {
+        mode = 'title'; sel = true;
+        baseTX = state.textX; baseTY = state.textY; p0x = p.x; p0y = p.y;
+        render();   // 单击选中立即显示选中框
+      }
+    }
+    if (!mode) {
+      if (sel) { sel = false; render(); }              // 点空白取消选中
+      mode = 'crop';
+      sx = e.clientX; sy = e.clientY;
+      sox = state.crops[ratio].offX; soy = state.crops[ratio].offY;
+    }
+    try { cv.setPointerCapture(e.pointerId); } catch {}
+    e.preventDefault();
+  });
+  cv.addEventListener('pointermove', e => {
+    if (!mode) return;
+    const p = toLogical(e);
+    if (mode === 'crop') {
+      state.crops[ratio].offX = sox + (e.clientX - sx) * (W / cv.clientWidth);
+      state.crops[ratio].offY = soy + (e.clientY - sy) * (H / cv.clientHeight);
+      drawCanvas(ratio);
+    } else if (mode === 'title') {
+      state.textX = clamp(baseTX + (p.x - p0x) / W, 0.15, 0.85);
+      state.textY = clamp(baseTY + (p.y - p0y) / H, 0.15, 0.85);
+      render();
+    } else if (mode === 'handle') {
+      const t = computeTitle(ratio);
+      if (t) {
+        // 拖手柄：以中心为锚调整宽度（boxW），字号自动适配
+        state.boxW = clamp((p.x - t.cx) * 2 / W, 0.5, 1.0);
+        render();
+      }
+    }
+  });
+  cv.addEventListener('pointerup', () => { mode = null; });
+  cv.addEventListener('pointercancel', () => { mode = null; });
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    const c = state.crops[ratio];
+    c.zoom = clamp(c.zoom * (e.deltaY < 0 ? 1.08 : 1 / 1.08), 1, 3);
+    drawCanvas(ratio);
+  }, { passive: false });
+  cv.addEventListener('dblclick', () => {
+    state.crops[ratio] = { zoom: 1, offX: 0, offY: 0 };
+    drawCanvas(ratio);
+  });
+}
+cropHandler('3x4', canvases['3x4']);
+cropHandler('4x3', canvases['4x3']);
+$('resetAll').addEventListener('click', () => {
+  state.crops = { '3x4': { zoom: 1, offX: 0, offY: 0 }, '4x3': { zoom: 1, offX: 0, offY: 0 } };
+  render();
+});
+
+function slug(s) {
+  return (s || 'cover').replace(/\s+/g, '-').replace(/[\\/:*?"<>|\n]/g, '').slice(0, 40) || 'cover';
+}
+$('exportJpg').addEventListener('click', () => {
+  const base = slug(state.title) + '-' + Date.now().toString().slice(-6);
+  downloadData(canvases['3x4'].toDataURL('image/jpeg', 0.92), base + '-3x4.jpg');
+  downloadData(canvases['4x3'].toDataURL('image/jpeg', 0.92), base + '-4x3.jpg');
+  $('exportInfo').textContent = '已导出 ' + base + '-3x4.jpg / ' + base + '-4x3.jpg';
+});
+function downloadData(dataUrl, name) {
+  const a = document.createElement('a');
+  a.href = dataUrl; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+// 内置预设快照（与 presets/*.json 同步维护；file:// 下无法 fetch 本地 json，故内置副本）
+const BUILTIN_PRESETS = {
+  default: {
+    title: '找对标\n五个标准',
+    autoSplit: true, maxChars: 5, boost: 1.0, lh: 1.45, ls: 8,
+    textX: 0.5, textY: 0.5, weight: 900, font: 'serif', shadow: true,
+    boxShow: false, boxStyle: 'none', boxAlpha: 0.32, boxPad: 0.16, boxRound: 14, boxW: 0.84, textColor: 'white',
+    autoDark: true, dark: 0.62, sat: 0.8, bri: 1.0, blur: 0
+  },
+  'capcut-light': {
+    title: '感觉靠谱\nAI 答案',
+    autoSplit: true, maxChars: 5, boost: 1.0, lh: 1.3, ls: 4,
+    textX: 0.5, textY: 0.5, weight: 900, font: 'sans', shadow: false,
+    boxShow: true, boxStyle: 'light', boxAlpha: 0.3, boxPad: 0.24, boxRound: 24, boxW: 0.9, textColor: 'white',
+    autoDark: true, dark: 0.5, sat: 0.8, bri: 1.0, blur: 0
+  },
+  darkbox: {
+    title: '找对标\n五个标准',
+    autoSplit: true, maxChars: 5, boost: 1.0, lh: 1.45, ls: 8,
+    textX: 0.5, textY: 0.5, weight: 900, font: 'serif', shadow: false,
+    boxShow: true, boxStyle: 'dark', boxAlpha: 0.32, boxPad: 0.16, boxRound: 14, boxW: 0.88, textColor: 'white',
+    autoDark: true, dark: 0.62, sat: 0.8, bri: 1.0, blur: 0
+  }
+};
+$('presetSel').addEventListener('change', e => {
+  const id = e.target.value;
+  if (!id) return;
+  const p = BUILTIN_PRESETS[id];
+  const NAME = { default: '默认款（白字宋体）', 'capcut-light': '剪映款（白盒黑体）', darkbox: '暗盒款（黑盒宋体）' };
+  if (p) {
+    const { title, ...style } = p;   // 应用风格，保留当前标题
+    applyParams(style);
+    sel = false;
+    $('exportInfo').textContent = '已应用样式：' + (NAME[id] || id);
+  }
+  e.target.value = '';
+});
+$('exportPreset').addEventListener('click', () => {
+  const p = packParams();
+  const blob = new Blob([JSON.stringify(p, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'preset.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  $('exportInfo').textContent = '已导出 preset.json';
+});
+$('importParams').addEventListener('click', () => $('importFile').click());
+$('importFile').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try {
+    const p = JSON.parse(await f.text());
+    applyParams(p);
+    $('exportInfo').textContent = '已导入参数';
+  } catch (err) {
+    $('exportInfo').textContent = '导入失败：JSON 格式不对';
+  }
+  e.target.value = '';
+});
+function packParams() {
+  const { crops, ...rest } = state;
+  return rest;
+}
+function applyParams(p) {
+  if (!p) return;
+  Object.assign(state, p);
+  syncUI();
+  render();
+}
+
+function saveState() {
+  try { localStorage.setItem(LSK, JSON.stringify(state)); } catch {}
+}
+window.addEventListener('beforeunload', saveState);
+(function restore() {
+  try {
+    const s = JSON.parse(localStorage.getItem(LSK));
+    if (s) Object.assign(state, s);
+  } catch {}
+})();
+
+window.__coverAPI = {
+  async setImage(dataUrl) { await setImageFromDataUrl(dataUrl, 'agent'); return true; },
+  setParams(p) { applyParams(p); return state; },
+  getState() { return JSON.parse(JSON.stringify(state)); },
+  debug() {
+    const [W, H] = SIZES['3x4'];
+    const t = computeTitle('3x4');
+    if (!t) return { lines: [], rect: null };
+    return { lines: t.lines, boxOn: t.boxOn, effW: t.effW, pad: t.pad, rect: { x0: t.rect.x0, y0: t.rect.y0, x1: t.rect.x1, y1: t.rect.y1 }, size: t.size, boxH: Math.round(t.rect.y1 - t.rect.y0), firstFitSize: t.size, boosted: t.size, font: `${state.weight} ${t.size}px ${fontStack()}` };
+  },
+  exportAll() {
+    return {
+      '3x4': canvases['3x4'].toDataURL('image/jpeg', 0.92),
+      '4x3': canvases['4x3'].toDataURL('image/jpeg', 0.92)
+    };
+  }
+};
+
+(async function init() {
+  await document.fonts.ready;
+  syncUI();
+  render();
+  fitCanvases();
+  window.__ready = true;
+})();
+
+// 两个预览画布严格等高自适应（3:4 + 4:3 并排总宽 = h*(3/4 + 4/3) ≈ 2.083h）
+function fitCanvases() {
+  const main = document.querySelector('main');
+  const availW = main.clientWidth - 32 - 24;   // padding + gap
+  const availH = window.innerHeight - 150;      // 顶部标签 & 底部提示留白
+  const h = Math.max(200, Math.min(availH, Math.floor(availW * 12 / 25)));
+  for (const r of ['3x4', '4x3']) { canvases[r].style.height = h + 'px'; canvases[r].style.width = 'auto'; }
+}
+let fitTimer = null;
+window.addEventListener('resize', () => {
+  if (fitTimer) clearTimeout(fitTimer);
+  fitTimer = setTimeout(fitCanvases, 100);
+});
+</script>
+</body>
+</html>
