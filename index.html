@@ -48,20 +48,27 @@
   canvas:active{cursor:grabbing;}
   .ph{color:var(--dim); font-size:12px; opacity:.6; margin-top:6px; white-space:nowrap;}
   .hidden{display:none!important;}
+  .m-only{display:none;}    /* 端侧文案切换（CSS 控制，不依赖 JS 时机） */
+  .d-only{display:block;}
 
-  /* ===== 手机端（≤900px）：预览在上、面板在下，触控友好 ===== */
+  /* ===== 手机端（≤900px）：顶部一行小预览，「点击选择图片」是第一步 ===== */
   @media (max-width:900px){
     body{display:flex; flex-direction:column; height:auto; min-height:100vh; overflow:auto; -webkit-text-size-adjust:100%;}
-    main{order:-1; flex:none; height:auto; overflow:visible; flex-direction:column; padding:12px 12px 4px; gap:14px;}
-    aside{width:100%; min-width:0; border-right:none; border-top:1px solid var(--line); overflow:visible; padding:16px 14px 48px;}
-    .preview{width:100%; flex:none;}
+    main{order:-1; flex:none; height:auto; overflow:visible; flex-direction:row; align-items:flex-start; padding:10px 12px 2px; gap:10px;}
+    aside{width:100%; min-width:0; border-right:none; border-top:1px solid var(--line); overflow:visible; padding:14px 14px 48px;}
+    .preview{flex:1; width:auto; min-width:0;}
+    .preview .tag{white-space:normal; text-align:center; font-size:10px;}
+    .ph{display:none;}                      /* 小预览条不放操作提示，省空间 */
+    .m-only{display:block;}
+    .d-only{display:none;}
     h1{font-size:18px;}
     .sub{font-size:12px;}
     textarea,input[type=text],select{font-size:16px; padding:10px;}  /* ≥16px 防 iOS 聚焦自动放大 */
     button{padding:12px 0; font-size:14px;}
     button.small{padding:10px 12px;}
-    .drop{height:120px;}
-    .ph{white-space:normal; text-align:center;}
+    /* 图片选择是手机端第一步：做成醒目主按钮样式 */
+    .drop{height:92px; border-style:solid; border-color:var(--acc); background:rgba(91,140,255,.12); color:var(--text); font-size:15px; font-weight:600;}
+    .drop.dragover{background:rgba(91,140,255,.22);}
     details.adv summary{padding:8px 0;}   /* 加大点按区 */
     .switch{padding:4px 0;}
   }
@@ -75,7 +82,7 @@
 
   <div class="group">
     <h3>图片</h3>
-    <div class="drop" id="drop">拖入图片，或点击选择<br><small>PNG / JPG</small></div>
+    <div class="drop" id="drop"><span class="d-only">拖入图片，或点击选择<br><small>PNG / JPG</small></span><span class="m-only">点击选择图片<br><small>相册 / 文件 · PNG / JPG</small></span></div>
     <input type="file" id="file" accept="image/*" class="hidden">
     <div class="btns" style="margin-top:8px;">
       <button class="small" id="resetAll">重置裁剪</button>
@@ -557,10 +564,11 @@ window.addEventListener('drop', e => {
 function showDropImg() {
   if (img) {
     drop.style.padding = '6px';
-    drop.innerHTML = `<img src="" style="width:auto;height:110px;max-width:100%;object-fit:contain;border-radius:4px">`;
+    drop.innerHTML = `<img src="" style="width:auto;height:auto;max-height:100%;max-width:100%;object-fit:contain;border-radius:4px">`;
     drop.querySelector('img').src = img.src;
   } else {
-    drop.innerHTML = '拖入图片，或点击选择<br><small>PNG / JPG</small>';
+    // 空态文案由 CSS .m-only/.d-only 按端切换（JS 时机早于视口模拟生效，不能用 innerWidth 判断）
+    drop.innerHTML = '<span class="d-only">拖入图片，或点击选择<br><small>PNG / JPG</small></span><span class="m-only">点击选择图片<br><small>相册 / 文件 · PNG / JPG</small></span>';
     drop.style.padding = '';
   }
 }
@@ -784,21 +792,19 @@ window.__coverAPI = {
 (async function init() {
   await document.fonts.ready;
   syncUI();
+  showDropImg();   // 空态文案按端区分（手机=「点击选择图片」）
   render();
   fitCanvases();
   window.__ready = true;
 })();
 
-// 两个预览画布自适应：桌面=严格等高并排（总宽 = h*(3/4 + 4/3) ≈ 2.083h）；手机=纵向堆叠
+// 两个预览画布自适应：桌面=严格等高并排（总宽 = h*(3/4 + 4/3) ≈ 2.083h）；手机=一行小预览条
 function fitCanvases() {
   const main = document.querySelector('main');
-  if (window.innerWidth <= 900) {           // 手机：宽度撑满、单张高度不超 62vh
-    const availW = main.clientWidth - 24;
-    const availH = Math.max(180, window.innerHeight * 0.62);
-    const w34 = Math.min(availW, Math.floor(availH * 3 / 4));   // 3:4 → 宽 = 高×3/4
-    const w43 = Math.min(availW, Math.floor(availH * 4 / 3));   // 4:3 → 宽 = 高×4/3
-    canvases['3x4'].style.width = w34 + 'px'; canvases['3x4'].style.height = 'auto';
-    canvases['4x3'].style.width = w43 + 'px'; canvases['4x3'].style.height = 'auto';
+  if (window.innerWidth <= 900) {           // 手机：两画布并排缩小成一行预览条（总宽 = h×2.083）
+    const availW = main.clientWidth - 24 - 10;   // padding + gap
+    const h = Math.max(110, Math.min(Math.floor(availW * 12 / 25), Math.floor(window.innerHeight * 0.28)));
+    for (const r of ['3x4', '4x3']) { canvases[r].style.height = h + 'px'; canvases[r].style.width = 'auto'; }
     return;
   }
   const availW = main.clientWidth - 32 - 24;   // padding + gap

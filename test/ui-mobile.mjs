@@ -36,6 +36,8 @@ try {
   page.on('pageerror', e => errors.push(String(e)));
   await page.goto(HTML_URL);
   await page.waitForFunction(() => window.__ready === true);
+  const emptyText = await page.evaluate(() => document.getElementById('drop').innerText.trim());
+  ok('空态文案=「点击选择图片」（手机第一步）', emptyText.startsWith('点击选择图片'), JSON.stringify(emptyText));
   await page.screenshot({ path: resolve(__dirname, 'out', 'ui-mobile-empty.png'), fullPage: true });
 
   // 载入测试图
@@ -48,19 +50,22 @@ try {
     const aside = document.querySelector('aside').getBoundingClientRect();
     const c34 = document.getElementById('cv-3x4').getBoundingClientRect();
     const c43 = document.getElementById('cv-4x3').getBoundingClientRect();
+    const drop = document.getElementById('drop').getBoundingClientRect();
     return {
       mainAboveAside: main.top < aside.top,
       asideFullWidth: aside.width >= 389,
       c34: { w: Math.round(c34.width), h: Math.round(c34.height) },
       c43: { w: Math.round(c43.width), h: Math.round(c43.height) },
-      stacked: c34.bottom <= c43.top + 2
+      row: c34.right <= c43.left + 2,                        // 两画布并排一行
+      compact: c34.height <= window.innerHeight * 0.32,      // 小预览条
+      pickerInFirstView: drop.top >= 0 && drop.bottom <= window.innerHeight   // 选图=第一步，首屏可见
     };
   });
   ok('预览在面板之上（order:-1）', layout.mainAboveAside);
   ok('侧栏占满宽度', layout.asideFullWidth);
-  ok('两画布纵向堆叠', layout.stacked);
-  ok('3:4 画布不超出屏宽', layout.c34.w <= 390, `w=${layout.c34.w} h=${layout.c34.h}`);
-  ok('4:3 画布不超出屏宽', layout.c43.w <= 390, `w=${layout.c43.w} h=${layout.c43.h}`);
+  ok('两画布并排成一行小预览', layout.row, `3x4=${layout.c34.w}×${layout.c34.h} 4x3=${layout.c43.w}×${layout.c43.h}`);
+  ok('预览条够小（≤32vh）', layout.compact);
+  ok('「点击选择图片」首屏可见（第一步）', layout.pickerInFirstView);
 
   // 双指捏合缩放（合成 PointerEvent，1.5 倍距离 → zoom ≈ 1.5）
   const pinch = await page.evaluate(async () => {
