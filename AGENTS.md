@@ -23,6 +23,7 @@
 - ✅ **手机端适配**（≤900px 媒体查询）：**顶部一行小预览条**（两画布并排等高 ≤28vh，只起预览作用）、「点击选择图片」蓝色主按钮是第一步（首屏可见；文案 CSS `.m-only/.d-only` 按端切换——JS 判 innerWidth 时机早于视口模拟生效，不可靠）、触控拖标题/拖手柄（pointer 事件原生可用，`touch-action:none`）、**双指捏合缩放图片**（补滚轮缺失）、输入框 16px 防 iOS 聚焦放大、download 不支持时新窗口长按保存兜底；`test/ui-mobile.mjs` iPhone 视口验证 ALL PASS（文案/小预览条/首屏选图/捏合 zoom=1.5/触控拖标题/桌面无回归）
 - ✅ **样式下拉修复**（用户反馈手机上"选了不切换"）：功能其实生效，但 `e.target.value=''` 让下拉弹回占位项 + 手机预览在屏幕外 = 看起来没反应。修法：保留选中值不回弹、`input`+`change` 双绑定（iOS change 偶发不触发）、切换后 `scrollIntoView` 滚回预览、exportInfo 显示已应用样式名
 - ✅ **手机端"换样式预览没变 / 导出不是一次两张"修复**：① **无图=样式预览**——drawCanvas 无图分支改为中性渐变背景上按当前样式渲染标题（computeTitle 不再要求 img），换样式/字体/盒子立刻可见，反馈在样式下拉下 `#presetInfo`；② 图片加载不再静默失败——`accept` 限定 png/jpg（iOS 相册选 HEIC 时自动转 JPG），解码失败在 `#imgHint` 明确报错；③ 高级面板 3 个 select（fontSel/boxStyle/textColor）也改 `input`+`change` 双绑；④ **手机导出**：优先 `navigator.share` 系统分享一次带两张（面板「存储图像」直接进相册），失败/取消兜底=结果面板两张图**长按保存** + 700ms 顺序下载（iOS 同步连点两次 `a.click()` 只下一张）；导出质量 0.92→0.95
+- ✅ **"字体根本没变"修复**（用户反馈选宋体后字体不变）：双引擎（Chromium + **WebKit 26.5 = iPhone Safari 同引擎**，webkit-2336 已装）实测字体切换机制本身正常（serif/sans 渲染像素不同）。真实原因：① **字体默认值本来就是宋体**——下拉显示"宋体"时再选宋体，input/change 都不触发（值没变）→ 看起来"没反应"；② 顶部小预览条里宋/黑差别太小看不出来。修法：字体下拉下加**大号字体字样**（`#fontSample` 用同一 fontStack，切换立刻可见）+ **`#fontInfo` 生效自检**（measureText 对比 "Songti SC" vs 泛型 serif，直接显示"Songti SC 已生效 / 此设备无宋体"）；bindSelect 补 `blur` 兜底（同值选择也重绘）；字体栈补全 iOS/Windows 别名；面板底部加 `build` 版本号排查旧缓存页。⚠ 检测字串**必须含拉丁/数字**——纯汉字 1em 全宽，任何字体测宽都一样，曾误报"字体相同"
 
 **默认风格（用户拍板）**：无盒白粗宋体 900 + 阴影 + 中置（textX/Y 0.5）。样式下拉 3 款：默认款（白字宋体）/ 剪映款（白盒黑体）/ 暗盒款（黑盒宋体）。
 

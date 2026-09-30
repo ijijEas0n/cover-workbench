@@ -54,6 +54,8 @@
   .eximgs figure{flex:1; min-width:0;}
   .eximgs img{width:100%; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,.4); -webkit-touch-callout:none; user-select:none;}
   .eximgs figcaption{font-size:10px; color:var(--dim); text-align:center; margin-top:4px;}
+  .fontSample{font-size:26px; font-weight:900; margin:8px 0 2px; padding:8px 10px; background:var(--panel2); border:1px solid var(--line); border-radius:8px; white-space:nowrap; overflow:hidden;}
+  .ver{font-size:10px; color:var(--dim); opacity:.55; margin-top:18px;}
 
   /* ===== 手机端（≤900px）：顶部一行小预览，「点击选择图片」是第一步 ===== */
   @media (max-width:900px){
@@ -160,6 +162,8 @@
         <option value="serif">宋体（Songti）</option>
         <option value="sans">黑体（剪映款）</option>
       </select>
+      <div class="fontSample" id="fontSample">永和九年 岁在癸丑 Aa 123</div>
+      <div class="lineinfo" id="fontInfo"></div>
     </div>
     <label class="switch"><input type="checkbox" id="shadow"> 文字阴影</label>
   </details>
@@ -208,6 +212,7 @@
       <div class="slider-row"><input type="range" id="blur" min="0" max="30" step="1" value="0"><span class="val" id="blurV">0</span></div>
     </div>
   </details>
+  <div class="ver" id="verLabel">build 0930-2 · 手机端字体修复版</div>
 </aside>
 
 <main>
@@ -227,8 +232,9 @@
 "use strict";
 
 const SIZES = { '3x4': [1080, 1440], '4x3': [1440, 1080] };
-const FONT_SERIF = '"Songti SC","Noto Serif SC","Source Han Serif SC","STSong",serif';
-const FONT_SANS = '"PingFang SC","Noto Sans SC","Source Han Sans SC","Hiragino Sans GB","Microsoft YaHei",sans-serif';
+// 字体栈：把 iOS/Windows/macOS 常见别名都列全，第一优先仍是 Songti SC / PingFang SC
+const FONT_SERIF = '"Songti SC","Songti TC","STSong","Noto Serif SC","Source Han Serif SC","Source Han Serif CN","SimSun","NSimSun","Times New Roman",serif';
+const FONT_SANS = '"PingFang SC","PingFang TC","Heiti SC","STHeiti","Noto Sans SC","Source Han Sans SC","Hiragino Sans GB","Microsoft YaHei","Helvetica Neue",Arial,sans-serif';
 const fontStack = () => state.font === 'sans' ? FONT_SANS : FONT_SERIF;
 
 const state = {
@@ -472,6 +478,29 @@ function updateLabels() {
   $('satV').textContent = Math.round(state.sat * 100) + '%';
   $('briV').textContent = state.bri.toFixed(2);
   $('blurV').textContent = state.blur;
+  updateFontUI();
+}
+// 字体字样 + 生效自检：让"字体变了没"在面板里一眼可见，并检测真机字体是否可用
+function updateFontUI() {
+  const sample = $('fontSample');
+  sample.style.fontFamily = fontStack();
+  sample.style.fontWeight = state.weight;
+  const probe = fam => {
+    const c = document.createElement('canvas').getContext('2d');
+    c.font = `900 100px ${fam}`;
+    // 必须含拉丁/数字：纯汉字是 1em 全宽字形，任何字体测宽都一样，会误判"字体相同"
+    return c.measureText('Mw永和9g').width;
+  };
+  const serifActive = probe(`"Songti SC",${FONT_SERIF}`) !== probe('serif');
+  const sansActive = probe(`"PingFang SC",${FONT_SANS}`) !== probe('sans-serif');
+  const serifVsSans = probe(FONT_SERIF) !== probe(FONT_SANS);
+  if (!serifVsSans) {
+    $('fontInfo').textContent = '⚠ 本机上宋体/黑体渲染结果相同（字体缺失被合并），已用系统默认字体';
+    return;
+  }
+  $('fontInfo').textContent = state.font === 'sans'
+    ? '当前：黑体 → ' + (sansActive ? 'PingFang SC 已生效' : '后备黑体已生效')
+    : '当前：宋体 → ' + (serifActive ? 'Songti SC 已生效' : '此设备无宋体，已用后备衬线字体');
 }
 function syncUI() {
   $('title').value = state.title;
@@ -528,12 +557,14 @@ $('autoSplit').addEventListener('change', e => { state.autoSplit = e.target.chec
 $('shadow').addEventListener('change', e => { state.shadow = e.target.checked; render(); });
 $('boxShow').addEventListener('change', e => { state.boxShow = e.target.checked; render(); });
 $('autoDark').addEventListener('change', e => { state.autoDark = e.target.checked; render(); });
-// select 双绑 input+change：iOS Safari 对 change 偶发不触发（样式下拉曾踩过）
+// select 三绑 input+change+blur：iOS Safari 对 change 偶发不触发；选"当前已选的选项"时
+// input/change 都不触发（值没变），blur 兜底重绘 + 刷字体字样，保证任何操作都有可见反馈
 const bindSelect = (id, key) => {
   const el = $(id);
-  const apply = () => { state[key] = el.value; render(); };
+  const apply = () => { state[key] = el.value; render(); updateLabels(); };
   el.addEventListener('input', apply);
   el.addEventListener('change', apply);
+  el.addEventListener('blur', apply);
 };
 bindSelect('boxStyle', 'boxStyle');
 bindSelect('textColor', 'textColor');
