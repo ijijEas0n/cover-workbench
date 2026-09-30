@@ -2,7 +2,8 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#111318">
 <title>封面工作台</title>
 <style>
   :root{
@@ -43,17 +44,34 @@
   .preview{display:flex; flex-direction:column; align-items:center; gap:6px; flex:none; min-width:0;}
   .preview .tag{font-size:12px; color:var(--dim); white-space:nowrap;}
   .preview .tag b{color:var(--text); font-weight:600;}
-  canvas{background:#000; border-radius:8px; box-shadow:0 8px 30px rgba(0,0,0,.5); cursor:grab; width:auto; height:auto;}
+  canvas{background:#000; border-radius:8px; box-shadow:0 8px 30px rgba(0,0,0,.5); cursor:grab; width:auto; height:auto; touch-action:none;}
   canvas:active{cursor:grabbing;}
   .ph{color:var(--dim); font-size:12px; opacity:.6; margin-top:6px; white-space:nowrap;}
   .hidden{display:none!important;}
+
+  /* ===== 手机端（≤900px）：预览在上、面板在下，触控友好 ===== */
+  @media (max-width:900px){
+    body{display:flex; flex-direction:column; height:auto; min-height:100vh; overflow:auto; -webkit-text-size-adjust:100%;}
+    main{order:-1; flex:none; height:auto; overflow:visible; flex-direction:column; padding:12px 12px 4px; gap:14px;}
+    aside{width:100%; min-width:0; border-right:none; border-top:1px solid var(--line); overflow:visible; padding:16px 14px 48px;}
+    .preview{width:100%; flex:none;}
+    h1{font-size:18px;}
+    .sub{font-size:12px;}
+    textarea,input[type=text],select{font-size:16px; padding:10px;}  /* ≥16px 防 iOS 聚焦自动放大 */
+    button{padding:12px 0; font-size:14px;}
+    button.small{padding:10px 12px;}
+    .drop{height:120px;}
+    .ph{white-space:normal; text-align:center;}
+    details.adv summary{padding:8px 0;}   /* 加大点按区 */
+    .switch{padding:4px 0;}
+  }
 </style>
 </head>
 <body>
 
 <aside>
   <h1>封面工作台</h1>
-  <div class="sub">拖入图片 → 输入标题 → 导出 3:4 + 4:3 两张封面<br>风格不够好看？右上「样式」一键切换</div>
+  <div class="sub">拖入图片 → 输入标题 → 导出 3:4 + 4:3 两张封面<br>风格不够好看？「样式」一键切换</div>
 
   <div class="group">
     <h3>图片</h3>
@@ -176,12 +194,12 @@
   <div class="preview">
     <div class="tag">3:4 · <b>1080×1440</b> 竖屏</div>
     <canvas id="cv-3x4" width="1080" height="1440"></canvas>
-    <div class="ph"><b>单击标题</b> 拖动挪位置 · 拖<b>右下角圆圈</b>改大小 · 滚轮缩放 · 双击复位</div>
+    <div class="ph"><b>点按标题</b> 拖动挪位置 · 拖<b>右下角圆圈</b>改大小 · 滚轮/双指缩放 · 双击复位</div>
   </div>
   <div class="preview">
     <div class="tag">4:3 · <b>1440×1080</b> 横屏</div>
     <canvas id="cv-4x3" width="1440" height="1080"></canvas>
-    <div class="ph"><b>单击标题</b> 拖动挪位置 · 拖<b>右下角圆圈</b>改大小 · 滚轮缩放 · 双击复位</div>
+    <div class="ph"><b>点按标题</b> 拖动挪位置 · 拖<b>右下角圆圈</b>改大小 · 滚轮/双指缩放 · 双击复位</div>
   </div>
 </main>
 
@@ -548,9 +566,11 @@ function showDropImg() {
 }
 
 function cropHandler(ratio, cv) {
-  let mode = null;   // 'crop' | 'title' | 'handle'
+  let mode = null;   // 'crop' | 'title' | 'handle' | 'pinch'
   let sx = 0, sy = 0, sox = 0, soy = 0;              // crop 拖拽基准
   let baseTX = 0, baseTY = 0, p0x = 0, p0y = 0;      // 标题拖拽基准（增量）
+  const pts = new Map();                             // 多点触控指针表（手机双指缩放用）
+  let pinchD = 0, pinchZ = 1;
   const [W, H] = SIZES[ratio];
   const toLogical = e => ({
     x: (e.clientX - cv.getBoundingClientRect().left) * (W / cv.clientWidth),
@@ -559,7 +579,16 @@ function cropHandler(ratio, cv) {
   const inRect = (p, r, pad) => p.x >= r.x0 - pad && p.x <= r.x1 + pad && p.y >= r.y0 - pad && p.y <= r.y1 + pad;
   const handleRadius = () => 16 * (W / 1080) + 12;
   const hitHandle = (p, r) => r && Math.hypot(p.x - r.x1, p.y - r.y1) <= handleRadius();
+  const ptDist = () => { const [a, b] = [...pts.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; };
   cv.addEventListener('pointerdown', e => {
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 2) {                 // 第二指落下 → 切双指缩放
+      mode = 'pinch'; pinchD = ptDist(); pinchZ = state.crops[ratio].zoom;
+      try { cv.setPointerCapture(e.pointerId); } catch {}
+      e.preventDefault();
+      return;
+    }
+    if (pts.size > 2) return;
     const p = toLogical(e);
     const t = computeTitle(ratio);
     if (t) {
@@ -581,7 +610,13 @@ function cropHandler(ratio, cv) {
     e.preventDefault();
   });
   cv.addEventListener('pointermove', e => {
+    if (pts.has(e.pointerId)) pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (!mode) return;
+    if (mode === 'pinch') {                 // 双指缩放图片（手机端补滚轮）
+      state.crops[ratio].zoom = clamp(pinchZ * ptDist() / pinchD, 1, 3);
+      drawCanvas(ratio);
+      return;
+    }
     const p = toLogical(e);
     if (mode === 'crop') {
       state.crops[ratio].offX = sox + (e.clientX - sx) * (W / cv.clientWidth);
@@ -600,8 +635,13 @@ function cropHandler(ratio, cv) {
       }
     }
   });
-  cv.addEventListener('pointerup', () => { mode = null; });
-  cv.addEventListener('pointercancel', () => { mode = null; });
+  const endPointer = e => {
+    pts.delete(e.pointerId);
+    if (mode === 'pinch' && pts.size < 2) mode = null;   // 双指缩放结束
+    else if (pts.size === 0) mode = null;
+  };
+  cv.addEventListener('pointerup', endPointer);
+  cv.addEventListener('pointercancel', endPointer);
   cv.addEventListener('wheel', e => {
     e.preventDefault();
     const c = state.crops[ratio];
@@ -632,6 +672,10 @@ $('exportJpg').addEventListener('click', () => {
 function downloadData(dataUrl, name) {
   const a = document.createElement('a');
   a.href = dataUrl; a.download = name;
+  if (!('download' in a)) {              // 老 iOS Safari 不支持 download → 新窗口打开，长按图片保存
+    window.open(dataUrl, '_blank');
+    return;
+  }
   document.body.appendChild(a); a.click(); a.remove();
 }
 // 内置预设快照（与 presets/*.json 同步维护；file:// 下无法 fetch 本地 json，故内置副本）
@@ -742,9 +786,18 @@ window.__coverAPI = {
   window.__ready = true;
 })();
 
-// 两个预览画布严格等高自适应（3:4 + 4:3 并排总宽 = h*(3/4 + 4/3) ≈ 2.083h）
+// 两个预览画布自适应：桌面=严格等高并排（总宽 = h*(3/4 + 4/3) ≈ 2.083h）；手机=纵向堆叠
 function fitCanvases() {
   const main = document.querySelector('main');
+  if (window.innerWidth <= 900) {           // 手机：宽度撑满、单张高度不超 62vh
+    const availW = main.clientWidth - 24;
+    const availH = Math.max(180, window.innerHeight * 0.62);
+    const w34 = Math.min(availW, Math.floor(availH * 3 / 4));   // 3:4 → 宽 = 高×3/4
+    const w43 = Math.min(availW, Math.floor(availH * 4 / 3));   // 4:3 → 宽 = 高×4/3
+    canvases['3x4'].style.width = w34 + 'px'; canvases['3x4'].style.height = 'auto';
+    canvases['4x3'].style.width = w43 + 'px'; canvases['4x3'].style.height = 'auto';
+    return;
+  }
   const availW = main.clientWidth - 32 - 24;   // padding + gap
   const availH = window.innerHeight - 150;      // 顶部标签 & 底部提示留白
   const h = Math.max(200, Math.min(availH, Math.floor(availW * 12 / 25)));
