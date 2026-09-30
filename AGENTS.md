@@ -22,6 +22,7 @@
 - ✅ 目视验收：test/ui-shot.mjs 空图/载图/选中态截图正常；test/smoke.mjs 预设+拖动+手柄+导出 ALL PASS
 - ✅ **手机端适配**（≤900px 媒体查询）：**顶部一行小预览条**（两画布并排等高 ≤28vh，只起预览作用）、「点击选择图片」蓝色主按钮是第一步（首屏可见；文案 CSS `.m-only/.d-only` 按端切换——JS 判 innerWidth 时机早于视口模拟生效，不可靠）、触控拖标题/拖手柄（pointer 事件原生可用，`touch-action:none`）、**双指捏合缩放图片**（补滚轮缺失）、输入框 16px 防 iOS 聚焦放大、download 不支持时新窗口长按保存兜底；`test/ui-mobile.mjs` iPhone 视口验证 ALL PASS（文案/小预览条/首屏选图/捏合 zoom=1.5/触控拖标题/桌面无回归）
 - ✅ **样式下拉修复**（用户反馈手机上"选了不切换"）：功能其实生效，但 `e.target.value=''` 让下拉弹回占位项 + 手机预览在屏幕外 = 看起来没反应。修法：保留选中值不回弹、`input`+`change` 双绑定（iOS change 偶发不触发）、切换后 `scrollIntoView` 滚回预览、exportInfo 显示已应用样式名
+- ✅ **手机端"换样式预览没变 / 导出不是一次两张"修复**：① **无图=样式预览**——drawCanvas 无图分支改为中性渐变背景上按当前样式渲染标题（computeTitle 不再要求 img），换样式/字体/盒子立刻可见，反馈在样式下拉下 `#presetInfo`；② 图片加载不再静默失败——`accept` 限定 png/jpg（iOS 相册选 HEIC 时自动转 JPG），解码失败在 `#imgHint` 明确报错；③ 高级面板 3 个 select（fontSel/boxStyle/textColor）也改 `input`+`change` 双绑；④ **手机导出**：优先 `navigator.share` 系统分享一次带两张（面板「存储图像」直接进相册），失败/取消兜底=结果面板两张图**长按保存** + 700ms 顺序下载（iOS 同步连点两次 `a.click()` 只下一张）；导出质量 0.92→0.95
 
 **默认风格（用户拍板）**：无盒白粗宋体 900 + 阴影 + 中置（textX/Y 0.5）。样式下拉 3 款：默认款（白字宋体）/ 剪映款（白盒黑体）/ 暗盒款（黑盒宋体）。
 
@@ -81,12 +82,12 @@ index.html 暴露了：
 9. **字体是动态的**：`fontStack()` 按 `state.font` 返回宋体/黑体两栈（PingFang SC 等 macOS 系统字，别再写死 FONT_STACK 常量）。
 10. **CLI 字符串参数坑**：`--box-style`/`--text-color`/`--font` 走 HASH 但值是字符串，**不在** parseFloat 循环里，需单独循环 `['boxStyle','textColor','font']` 直接赋值——曾经漏掉导致传了没效果。
 11. **画布尺寸**：`fitCanvases()`（index.html 末尾）两个画布严格等高（3:4+4:3 并排总宽≈h×2.083，取 min(可用高, 可用宽×12/25)），resize debounce 重算。
-12. **无图不渲染标题**：`drawCanvas` 里 `if (!img)` 直接 return；`computeTitle` 返回 null——交互测试必须先 setImage 才能拖标题。
+12. **无图=样式预览（2024-09 改）**：`drawCanvas` 里 `if (!img)` 分支画中性渐变背景+顶部小字提示+按当前样式的标题（`computeTitle` 不再要求 img，无图也能拖标题）；载图后走真实封面渲染。旧版曾"无图不渲染标题"（v2 修复标题叠占位文字），现改为有意的样式预览。
 13. **拖拽坐标换算**：`toLogical(e)` 用 canvas CSS rect 缩放回 1080/1440 逻辑坐标；拖动用增量（base+delta）避免中心吸附跳变；拖手柄 `boxW = clamp((p.x - cx)*2/W, 0.5, 1.0)`（以中心为锚）。
 14. **选中框**：pointerdown 命中矩形时 `sel=true` 并**立即 render()**（否则只拖动才显示框）；点空白取消；`sel` 是全局变量两画布同步。⚠ 曾因批量编辑失败丢失 `let sel=false` 声明，导致 `sel is not defined`、setImage promise 永不 resolve（onload 回调中断）——修完必跑 smoke。
 15. **Playwright 测试**：拖动/手柄测试前必须 setImage；手柄测试前先 setParams 复位 textX/textY（拖远手柄会出画布外）。
 11. **画布 CSS 尺寸（v2 修复的交互问题）**：canvas 不设 CSS 尺寸时按像素 1:1 显示（1080/1440px），4:3 画布会撑爆视口。现在用 `fitCanvases()`（index.html 末尾）：两个画布严格等高（3:4+4:3 并排总宽≈h×2.083，取 min(可用高, 可用宽×12/25)），resize 时 debounce 重算。
-12. **无图不渲染标题（v2 修复）**：`drawCanvas` 里 `if (!img)` 画完占位提示后**直接 return**，否则标题文字叠在「拖入图片开始」上（旧版 bug）。
+12. ~~**无图不渲染标题（v2 修复）**~~（已被第一组 12 的"无图=样式预览"取代）：v2 曾修过标题叠在「拖入图片开始」占位文字上的 bug；现在占位提示移到顶部小字、标题按当前样式渲染，问题不再复现。
 13. **v1 旧参数污染（v2 修复）**：用户 localStorage 里存过脏参数（boost 0.8/lh 1.55/ls 28 等），v2 换 key `cover-workbench-v2`，不再读 v1。
 14. **工作台自检脚本**：`test/ui-shot.mjs` 用 Playwright 开两个页面态（空图/载图）截图到 `test/out/ui-*.png`，可直接目视验收布局；`test/smoke.mjs` 冒烟（预设应用/导出/渲染 ALL PASS）。
 

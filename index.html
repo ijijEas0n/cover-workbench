@@ -50,6 +50,10 @@
   .hidden{display:none!important;}
   .m-only{display:none;}    /* 端侧文案切换（CSS 控制，不依赖 JS 时机） */
   .d-only{display:block;}
+  .eximgs{display:flex; gap:8px; margin-top:8px;}
+  .eximgs figure{flex:1; min-width:0;}
+  .eximgs img{width:100%; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,.4); -webkit-touch-callout:none; user-select:none;}
+  .eximgs figcaption{font-size:10px; color:var(--dim); text-align:center; margin-top:4px;}
 
   /* ===== 手机端（≤900px）：顶部一行小预览，「点击选择图片」是第一步 ===== */
   @media (max-width:900px){
@@ -83,10 +87,11 @@
   <div class="group">
     <h3>图片</h3>
     <div class="drop" id="drop"><span class="d-only">拖入图片，或点击选择<br><small>PNG / JPG</small></span><span class="m-only">点击选择图片<br><small>相册 / 文件 · PNG / JPG</small></span></div>
-    <input type="file" id="file" accept="image/*" class="hidden">
+    <input type="file" id="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" class="hidden">
     <div class="btns" style="margin-top:8px;">
       <button class="small" id="resetAll">重置裁剪</button>
     </div>
+    <div class="lineinfo" id="imgHint"></div>
   </div>
 
   <div class="group">
@@ -104,6 +109,7 @@
       <option value="capcut-light">剪映款（白盒 · 黑体）</option>
       <option value="darkbox">暗盒款（黑盒 · 宋体）</option>
     </select>
+    <div class="lineinfo" id="presetInfo"></div>
   </div>
 
   <div class="group">
@@ -117,6 +123,13 @@
       <input type="file" id="importFile" accept="application/json" class="hidden">
     </div>
     <div class="lineinfo" style="margin-top:8px;" id="exportInfo"></div>
+    <div id="exportResult" class="hidden">
+      <div class="lineinfo" style="margin-top:8px;">长按图片 →「存储到相册」；或点系统分享里的「存储图像」</div>
+      <div class="eximgs">
+        <figure><img id="ex34" alt="3:4 封面"><figcaption>3:4 · 1080×1440</figcaption></figure>
+        <figure><img id="ex43" alt="4:3 封面"><figcaption>4:3 · 1440×1080</figcaption></figure>
+      </div>
+    </div>
   </div>
 
   <details class="adv">
@@ -301,7 +314,7 @@ function layoutLines() {
 function computeTitle(ratio) {
   const [W, H] = SIZES[ratio];
   const lines = layoutLines();
-  if (!img || !lines.length) return null;
+  if (!lines.length) return null;   // 无图也算标题几何：让样式在选图前就能预览（drawCanvas 画在占位背景上）
   const boxOn = !!state.boxShow && state.boxStyle !== 'none';
   const effW = W * state.boxW;               // 有盒=盒宽；无盒=文字宽度参考（拖角可调字号）
   const pad = state.boxPad || 0;
@@ -395,13 +408,18 @@ function drawCanvas(ratio) {
   ctx.clearRect(0, 0, W, H);
   ctx.save();
   if (!img) {
-    // 无图时只画占位提示，不渲染标题（修复标题叠在占位文字上的问题）
-    ctx.fillStyle = '#1a1d24';
+    // 无图 = 样式预览：中性渐变背景上按当前样式渲染标题（换样式立刻可见），载图后为真实封面
+    const g = ctx.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, '#262c38'); g.addColorStop(1, '#12151b');
+    ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = '#4a5261';
-    ctx.font = `${Math.round(W * 0.04)}px -apple-system,sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('拖入图片开始', W / 2, H / 2);
+    ctx.fillStyle = '#5a6272';
+    ctx.font = `${Math.round(W * 0.032)}px -apple-system,sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText('载图后为你的封面 · 点下方「选择图片」', W / 2, H * 0.05);
+    const t = computeTitle(ratio);
+    if (t) drawTitleBlock(ratio, t);
+    if (sel) drawSelection(ratio);
     ctx.restore();
     return;
   }
@@ -510,9 +528,16 @@ $('autoSplit').addEventListener('change', e => { state.autoSplit = e.target.chec
 $('shadow').addEventListener('change', e => { state.shadow = e.target.checked; render(); });
 $('boxShow').addEventListener('change', e => { state.boxShow = e.target.checked; render(); });
 $('autoDark').addEventListener('change', e => { state.autoDark = e.target.checked; render(); });
-$('boxStyle').addEventListener('change', e => { state.boxStyle = e.target.value; render(); });
-$('textColor').addEventListener('change', e => { state.textColor = e.target.value; render(); });
-$('fontSel').addEventListener('change', e => { state.font = e.target.value; render(); });
+// select 双绑 input+change：iOS Safari 对 change 偶发不触发（样式下拉曾踩过）
+const bindSelect = (id, key) => {
+  const el = $(id);
+  const apply = () => { state[key] = el.value; render(); };
+  el.addEventListener('input', apply);
+  el.addEventListener('change', apply);
+};
+bindSelect('boxStyle', 'boxStyle');
+bindSelect('textColor', 'textColor');
+bindSelect('fontSel', 'font');
 $('title').addEventListener('input', e => { state.title = e.target.value; render(); });
 
 function computeAutoDark(im) {
@@ -547,19 +572,26 @@ function fileToDataUrl(file) {
   });
 }
 async function loadFile(file) {
-  if (!file.type.startsWith('image/')) return;
-  const data = await fileToDataUrl(file);
-  await setImageFromDataUrl(data, file.name);
+  if (!file.type.startsWith('image/')) { $('imgHint').textContent = '只支持 PNG / JPG 图片'; return; }
+  $('imgHint').textContent = '载入中…';
+  try {
+    const data = await fileToDataUrl(file);
+    await setImageFromDataUrl(data, file.name);
+    $('imgHint').textContent = '已载入：' + (file.name || '图片');
+  } catch {
+    // 常见于 HEIC（iPhone 原始格式）等浏览器解码不了的格式——以前静默失败，看着像"没反应"
+    $('imgHint').textContent = '这张图打不开，请换 JPG / PNG（iPhone 相册选图应自动转 JPG，若不行用「文件」App 导出 JPEG）';
+  }
 }
 const drop = $('drop');
 drop.addEventListener('click', () => $('file').click());
-$('file').addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); e.target.value = ''; });
+$('file').addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]).catch(() => {}); e.target.value = ''; });
 ['dragover', 'dragenter'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('dragover'); }));
 ['dragleave', 'drop'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); if (ev === 'dragleave') drop.classList.remove('dragover'); }));
 window.addEventListener('drop', e => {
   drop.classList.remove('dragover');
   const f = e.dataTransfer.files[0];
-  if (f && f.type.startsWith('image/')) loadFile(f);
+  if (f && f.type.startsWith('image/')) loadFile(f).catch(() => {});
 });
 function showDropImg() {
   if (img) {
@@ -671,12 +703,46 @@ $('resetAll').addEventListener('click', () => {
 function slug(s) {
   return (s || 'cover').replace(/\s+/g, '-').replace(/[\\/:*?"<>|\n]/g, '').slice(0, 40) || 'cover';
 }
-$('exportJpg').addEventListener('click', () => {
+$('exportJpg').addEventListener('click', async () => {
   const base = slug(state.title) + '-' + Date.now().toString().slice(-6);
-  downloadData(canvases['3x4'].toDataURL('image/jpeg', 0.92), base + '-3x4.jpg');
-  downloadData(canvases['4x3'].toDataURL('image/jpeg', 0.92), base + '-4x3.jpg');
-  $('exportInfo').textContent = '已导出 ' + base + '-3x4.jpg / ' + base + '-4x3.jpg';
+  const f34 = base + '-3x4.jpg', f43 = base + '-4x3.jpg';
+  const d34 = canvases['3x4'].toDataURL('image/jpeg', 0.95);
+  const d43 = canvases['4x3'].toDataURL('image/jpeg', 0.95);
+  if (window.innerWidth <= 900) {
+    // 手机：① 系统分享一次带两张（分享面板里「存储图像」直接存相册）
+    const files = [dataUrlToFile(d34, f34), dataUrlToFile(d43, f43)];
+    if (navigator.canShare && navigator.canShare({ files })) {
+      try {
+        await navigator.share({ files });
+        showExportResult(d34, d43);
+        $('exportInfo').textContent = '已调起分享（可选「存储图像」一次存两张）；也可长按下方图片保存';
+        return;
+      } catch { /* 用户取消或分享失败 → 走兜底 */ }
+    }
+    // ② 兜底：结果面板长按保存 + 顺序下载（同步连点两次 iOS 只下一张）
+    showExportResult(d34, d43);
+    downloadData(d34, f34);
+    setTimeout(() => downloadData(d43, f43), 700);
+    $('exportInfo').textContent = '两张封面已生成（' + f34 + ' / ' + f43 + '）：长按上方图片存相册，或等下载完成';
+    return;
+  }
+  downloadData(d34, f34);
+  setTimeout(() => downloadData(d43, f43), 300);
+  $('exportInfo').textContent = '已导出 ' + f34 + ' / ' + f43;
 });
+function showExportResult(d34, d43) {
+  $('ex34').src = d34;
+  $('ex43').src = d43;
+  $('exportResult').classList.remove('hidden');
+}
+function dataUrlToFile(dataUrl, name) {
+  const [head, b64] = dataUrl.split(',');
+  const mime = (head.match(/:(.*?);/) || [])[1] || 'image/jpeg';
+  const bin = atob(b64);
+  const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return new File([u8], name, { type: mime });
+}
 function downloadData(dataUrl, name) {
   const a = document.createElement('a');
   a.href = dataUrl; a.download = name;
@@ -717,7 +783,7 @@ function applyPreset(id) {
   const { title, ...style } = p;   // 应用风格，保留当前标题
   applyParams(style);
   sel = false;
-  $('exportInfo').textContent = '已应用样式：' + (NAME[id] || id);
+  $('presetInfo').textContent = '已应用样式：' + (NAME[id] || id) + (img ? '' : '（当前为样式预览，载入图片后即为封面效果）');
   if (window.innerWidth <= 900) {   // 手机：预览在上方屏幕外，滚回预览让用户看见切换效果
     document.querySelector('main').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }

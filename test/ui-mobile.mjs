@@ -40,6 +40,19 @@ try {
   ok('空态文案=「点击选择图片」（手机第一步）', emptyText.startsWith('点击选择图片'), JSON.stringify(emptyText));
   await page.screenshot({ path: resolve(__dirname, 'out', 'ui-mobile-empty.png'), fullPage: true });
 
+  // 无图时切换样式也要可见（样式预览：换白字宋体/暗盒款画布内容应变化）
+  const sampleSwitch = await page.evaluate(async () => {
+    const cv = () => document.getElementById('cv-3x4').toDataURL();
+    const before = (await cv()).length;
+    const sel = document.getElementById('presetSel');
+    sel.value = 'darkbox'; sel.dispatchEvent(new Event('input', { bubbles: true }));   // iOS 常走 input
+    const afterDark = (await cv()).length;
+    sel.value = 'default'; sel.dispatchEvent(new Event('change', { bubbles: true }));
+    const afterDefault = (await cv()).length;
+    return { changed: before !== afterDark && afterDark !== afterDefault };
+  });
+  ok('无图换样式：预览即时变化（样式预览）', sampleSwitch.changed);
+
   // 载入测试图
   const data = readFileSync(resolve(__dirname, 'src.png'));
   await page.evaluate(d => window.__coverAPI.setImage(d), 'data:image/png;base64,' + data.toString('base64'));
@@ -100,6 +113,20 @@ try {
     return { moved: after.textX !== before.textX && after.textY !== before.textY };
   });
   ok('触控拖动标题移动位置', drag.moved);
+
+  // 手机导出：结果面板必须出现且带两张图（长按保存兜底路径）
+  const exp = await page.evaluate(async () => {
+    document.getElementById('exportJpg').click();
+    await new Promise(r => setTimeout(r, 400));
+    const panel = document.getElementById('exportResult');
+    const a = document.getElementById('ex34'), b = document.getElementById('ex43');
+    return {
+      panelShown: !panel.classList.contains('hidden'),
+      bothImgs: a.naturalWidth > 0 && b.naturalWidth > 0
+    };
+  });
+  ok('导出出结果面板（长按保存兜底）', exp.panelShown);
+  ok('结果面板含两张封面', exp.bothImgs);
 
   ok('无 JS 报错', errors.length === 0, errors.join(' | '));
   await ctx.close();
