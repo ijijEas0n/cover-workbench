@@ -702,19 +702,22 @@ const BUILTIN_PRESETS = {
     autoDark: true, dark: 0.62, sat: 0.8, bri: 1.0, blur: 0
   }
 };
-$('presetSel').addEventListener('change', e => {
-  const id = e.target.value;
-  if (!id) return;
+function applyPreset(id) {
   const p = BUILTIN_PRESETS[id];
   const NAME = { default: '默认款（白字宋体）', 'capcut-light': '剪映款（白盒黑体）', darkbox: '暗盒款（黑盒宋体）' };
-  if (p) {
-    const { title, ...style } = p;   // 应用风格，保留当前标题
-    applyParams(style);
-    sel = false;
-    $('exportInfo').textContent = '已应用样式：' + (NAME[id] || id);
+  if (!p) return;
+  const { title, ...style } = p;   // 应用风格，保留当前标题
+  applyParams(style);
+  sel = false;
+  $('exportInfo').textContent = '已应用样式：' + (NAME[id] || id);
+  if (window.innerWidth <= 900) {   // 手机：预览在上方屏幕外，滚回预览让用户看见切换效果
+    document.querySelector('main').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
-  e.target.value = '';
-});
+}
+// input + change 双保险：iOS Safari 对 select 的 change 偶发不触发，input 事件更可靠。
+// 注意：不要把 value 重置回占位项——下拉会「弹回」，用户以为没切换。
+$('presetSel').addEventListener('change', e => applyPreset(e.target.value));
+$('presetSel').addEventListener('input', e => applyPreset(e.target.value));
 $('exportPreset').addEventListener('click', () => {
   const p = packParams();
   const blob = new Blob([JSON.stringify(p, null, 2)], { type: 'application/json' });
