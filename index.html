@@ -6,13 +6,10 @@
 <meta name="theme-color" content="#111318">
 <title>封面工作台</title>
 <style>
-  /* 内置宋体（Noto Serif SC Black 子集，OFL 许可，见 fonts/OFL.txt）：
-     iPhone 等设备没有"宋体"系统字体，必须自带字体文件，否则宋体/黑体字形一样 */
-  @font-face{
-    font-family:'CoverSerif';
-    src:url('fonts/cover-serif-sc.woff2') format('woff2');
-    font-weight:900; font-style:normal; font-display:swap;
-  }
+  /* 内置宋体（Noto Serif SC Black 子集，TrueType 轮廓，OFL 许可见 fonts/OFL.txt）：
+     iPhone 等设备没有"宋体"系统字体，必须自带字体文件，否则宋体/黑体字形一样。
+     字体用 FontFace API 在 JS 里加载（见 loadCoverFont），便于失败时把原因显示给用户，
+     故这里不写 @font-face。 */
   :root{
     --bg:#111318; --panel:#1a1d24; --panel2:#22262f; --line:#2e3340;
     --text:#e8eaed; --dim:#9aa0ac; --acc:#5b8cff;
@@ -219,7 +216,7 @@
       <div class="slider-row"><input type="range" id="blur" min="0" max="30" step="1" value="0"><span class="val" id="blurV">0</span></div>
     </div>
   </details>
-  <div class="ver" id="verLabel">build 1006-1 · 内置宋体版</div>
+  <div class="ver" id="verLabel">build 1006-2 · 内置宋体TTF版（字体状态见高级·文字）</div>
 </aside>
 
 <main>
@@ -243,6 +240,32 @@ const SIZES = { '3x4': [1080, 1440], '4x3': [1440, 1080] };
 const FONT_SERIF = '"CoverSerif","Songti SC","Songti TC","STSong","Noto Serif SC","Source Han Serif SC","Source Han Serif CN","SimSun","NSimSun","Times New Roman",serif';
 const FONT_SANS = '"PingFang SC","PingFang TC","Heiti SC","STHeiti","Noto Sans SC","Source Han Sans SC","Hiragino Sans GB","Microsoft YaHei","Helvetica Neue",Arial,sans-serif';
 const fontStack = () => state.font === 'sans' ? FONT_SANS : FONT_SERIF;
+
+// 内置宋体加载（FontFace API）：能拿到失败原因并显示给用户，比 CSS @font-face 更好排查
+let coverFontOk = false, coverFontErr = '';
+const COVER_FONT_SRC = "url('fonts/cover-serif-v2.woff2') format('woff2'), url('fonts/cover-serif-v2.woff') format('woff')";
+function loadCoverFont() {
+  return new Promise(resolve => {
+    if (!window.FontFace) { coverFontErr = '此浏览器不支持 FontFace'; return resolve(false); }
+    let done = false;
+    const finish = ok => { if (!done) { done = true; resolve(ok); } };
+    // 超时保护：个别机型加载可能长时间挂起，不能因此卡住首次渲染
+    const timer = setTimeout(() => { coverFontErr = '加载超时（15 秒）'; finish(false); }, 15000);
+    let ff;
+    try { ff = new FontFace('CoverSerif', COVER_FONT_SRC, { weight: '900', style: 'normal' }); }
+    catch (e) { clearTimeout(timer); coverFontErr = '创建字体对象失败：' + ((e && e.message) || e); return finish(false); }
+    ff.load().then(loaded => {
+      clearTimeout(timer);
+      try { document.fonts.add(loaded); } catch {}
+      coverFontOk = true; coverFontErr = '';
+      finish(true);
+    }).catch(e => {
+      clearTimeout(timer);
+      coverFontErr = (e && e.message) || String(e) || '未知错误';
+      finish(false);
+    });
+  });
+}
 
 const state = {
   title: '找对标\n五个标准',
@@ -505,10 +528,13 @@ function updateFontUI() {
     $('fontInfo').textContent = '⚠ 宋体/黑体在本机渲染相同（内置字体未载入），请刷新页面；仍不行请反馈';
     return;
   }
-  const bundled = document.fonts.check('900 100px "CoverSerif"');
+  const bundled = coverFontOk || document.fonts.check('900 100px "CoverSerif"');
   $('fontInfo').textContent = state.font === 'sans'
     ? '当前：黑体 → ' + (sansActive ? 'PingFang SC 已生效' : '后备黑体已生效')
-    : '当前：宋体 → ' + (bundled ? '内置宋体（Noto Serif SC）已生效' : (serifActive ? '系统宋体已生效' : '此设备无宋体，已用后备衬线字体'));
+    : '当前：宋体 → ' + (bundled
+        ? '内置宋体（Noto Serif SC）已生效'
+        : '⚠ 内置宋体未加载' + (coverFontErr ? '：' + coverFontErr : '') + '（下拉刷新页面重试）');
+  $('fontSample').style.opacity = (state.font === 'serif' && !bundled) ? .75 : 1;
 }
 function syncUI() {
   $('title').value = state.title;
@@ -895,19 +921,21 @@ window.__coverAPI = {
 };
 
 (async function init() {
-  // 先等内置宋体加载完再首次渲染：画布不会先用后备字体画一遍（CLI 也等 __ready，出图字体一致）
-  // file:// 下若字体被 CORS 拦，load 会 reject，这里兜住走系统字体回退
-  try { await document.fonts.load('900 100px "CoverSerif"', state.title || '永和九年'); } catch {}
+  // 先加载内置宋体再首次渲染：画布不会先用后备字体画一遍（CLI 也等 __ready，出图字体一致）
+  await loadCoverFont();
   await document.fonts.ready;
   syncUI();
   showDropImg();   // 空态文案按端区分（手机=「点击选择图片」）
   render();
   fitCanvases();
   window.__ready = true;
-  // 首次加载 1.4MB 字体可能慢于首次渲染，字体到位后补渲染一次，保证画布用上内置宋体
-  document.fonts.load('900 100px "CoverSerif"', state.title || '永和九年')
-    .then(() => { if (state.font === 'serif') { render(); updateLabels(); } })
-    .catch(() => {});
+  // 失败重试一次（网络抖动 / 首次请求被中断），成功后补渲染并把状态写回面板
+  if (!coverFontOk) {
+    setTimeout(async () => {
+      if (await loadCoverFont()) { if (state.font === 'serif') render(); }
+      updateLabels();
+    }, 1500);
+  }
 })();
 
 // 两个预览画布自适应：桌面=严格等高并排（总宽 = h*(3/4 + 4/3) ≈ 2.083h）；手机=一行小预览条
