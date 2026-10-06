@@ -52,6 +52,11 @@
   canvas:active{cursor:grabbing;}
   .ph{color:var(--dim); font-size:12px; opacity:.6; margin-top:6px; white-space:nowrap;}
   .hidden{display:none!important;}
+  .bar{position:fixed; left:0; right:0; top:0; z-index:99; display:flex; align-items:center; justify-content:center; gap:10px;
+       padding:10px 14px; font-size:13px; line-height:1.4; background:var(--acc); color:#fff; box-shadow:0 2px 12px rgba(0,0,0,.4);}
+  .bar button{flex:0 0 auto; background:#fff; color:#2b4bb5; border:none; border-radius:6px; padding:6px 12px; font-size:13px; font-weight:600;}
+  .bar.err{background:#7a2230; text-align:left; display:block;}
+  canvas{max-width:100%;}   /* 兜底：JS 万一没跑到，画布也不会撑成 1080px 宽 */
   .m-only{display:none;}    /* 端侧文案切换（CSS 控制，不依赖 JS 时机） */
   .d-only{display:block;}
   .eximgs{display:flex; gap:8px; margin-top:8px;}
@@ -65,6 +70,7 @@
   @media (max-width:900px){
     body{display:flex; flex-direction:column; height:auto; min-height:100vh; overflow:auto; -webkit-text-size-adjust:100%;}
     main{order:-1; flex:none; height:auto; overflow:visible; flex-direction:row; align-items:flex-start; padding:10px 12px 2px; gap:10px;}
+    .preview canvas{width:100%; height:auto;}   /* 兜底：JS 没跑到时不至于撑成整屏宽大图 */
     aside{width:100%; min-width:0; border-right:none; border-top:1px solid var(--line); overflow:visible; padding:14px 14px 48px;}
     .preview{flex:1; width:auto; min-width:0;}
     .preview .tag{white-space:normal; text-align:center; font-size:10px;}
@@ -86,8 +92,16 @@
 </head>
 <body>
 
+<!-- 版本自检：发现线上有新版本时提示（旧缓存页面看不到新版功能的老问题） -->
+<div id="updateBar" class="bar hidden">
+  <span>检测到新版本，点右侧刷新加载（旧缓存页面不会有新功能）</span>
+  <button id="updateBtn">立即刷新</button>
+</div>
+<!-- 页面异常时把错误显示出来，避免"看着像没反应" -->
+<div id="errBar" class="bar err hidden"></div>
+
 <aside>
-  <h1>封面工作台</h1>
+  <h1>封面工作台 <span id="buildTag" style="font-size:11px;font-weight:400;color:var(--dim)">build 1006-3</span></h1>
   <div class="sub">拖入图片 → 输入标题 → 导出 3:4 + 4:3 两张封面<br>风格不够好看？「样式」一键切换</div>
 
   <div class="group">
@@ -216,7 +230,7 @@
       <div class="slider-row"><input type="range" id="blur" min="0" max="30" step="1" value="0"><span class="val" id="blurV">0</span></div>
     </div>
   </details>
-  <div class="ver" id="verLabel">build 1006-2 · 内置宋体TTF版（字体状态见高级·文字）</div>
+  <div class="ver" id="verLabel">build 1006-3 · 内置宋体TTF版（字体状态见高级·文字）</div>
 </aside>
 
 <main>
@@ -528,7 +542,9 @@ function updateFontUI() {
     $('fontInfo').textContent = '⚠ 宋体/黑体在本机渲染相同（内置字体未载入），请刷新页面；仍不行请反馈';
     return;
   }
-  const bundled = coverFontOk || document.fonts.check('900 100px "CoverSerif"');
+  // 注意：只能认实际加载结果。document.fonts.check() 对"未注册的字体族"也返回 true（会走系统回退），
+  // 曾因此把"没加载成功"误报成"已生效"
+  const bundled = coverFontOk;
   $('fontInfo').textContent = state.font === 'sans'
     ? '当前：黑体 → ' + (sansActive ? 'PingFang SC 已生效' : '后备黑体已生效')
     : '当前：宋体 → ' + (bundled
@@ -920,22 +936,52 @@ window.__coverAPI = {
   }
 };
 
+// 当前构建号（改版本时同步改 version.json）：用于发现线上有新版本，提示刷新
+const BUILD = '1006-3';
+function reportErr(where, e) {
+  const msg = where + '：' + ((e && e.message) || e);
+  try { console.error(msg); } catch {}
+  const bar = $('errBar');
+  if (bar) { bar.textContent = '⚠ 页面出错（' + msg + '）— 请截图反馈'; bar.classList.remove('hidden'); }
+}
+async function checkUpdate() {
+  try {
+    const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (j && j.build && j.build !== BUILD) {
+      const bar = $('updateBar');
+      if (bar) bar.classList.remove('hidden');
+    }
+  } catch {}   // file:// 下 fetch 会失败，忽略
+}
+$('updateBtn').addEventListener('click', () => location.replace(location.pathname + '?v=' + Date.now()));
+
+// 带超时的等待：文档字体/网络请求在个别机型上可能长时间不返回，绝不能因此卡住初始化
+const withTimeout = (p, ms, tag) => Promise.race([
+  Promise.resolve(p).catch(() => null),
+  new Promise(r => setTimeout(() => r(null), ms))
+]);
+
 (async function init() {
-  // 先加载内置宋体再首次渲染：画布不会先用后备字体画一遍（CLI 也等 __ready，出图字体一致）
-  await loadCoverFont();
-  await document.fonts.ready;
-  syncUI();
-  showDropImg();   // 空态文案按端区分（手机=「点击选择图片」）
-  render();
-  fitCanvases();
+  // 每一步都兜住：任何一步出错/卡住都不能让画布尺寸与布局停留在未初始化状态
+  try { fitCanvases(); } catch (e) { reportErr('画布尺寸初始化', e); }
+  try { await withTimeout(loadCoverFont(), 16000, '字体'); } catch (e) { reportErr('内置字体加载', e); }
+  await withTimeout(document.fonts.ready, 6000, '字体就绪');
+  try { syncUI(); } catch (e) { reportErr('界面同步', e); }
+  try { showDropImg(); } catch (e) { reportErr('选图区', e); }
+  try { render(); } catch (e) { reportErr('渲染', e); }
+  try { fitCanvases(); } catch (e) { reportErr('画布尺寸', e); }
   window.__ready = true;
   // 失败重试一次（网络抖动 / 首次请求被中断），成功后补渲染并把状态写回面板
   if (!coverFontOk) {
     setTimeout(async () => {
-      if (await loadCoverFont()) { if (state.font === 'serif') render(); }
-      updateLabels();
+      try { if (await loadCoverFont()) { if (state.font === 'serif') render(); } } catch {}
+      try { updateLabels(); } catch {}
     }, 1500);
   }
+  // 版本自检只在 http(s) 下做：file:// 打开（本地/CLI）时 fetch 会报错
+  if (location.protocol === 'http:' || location.protocol === 'https:') checkUpdate();
 })();
 
 // 两个预览画布自适应：桌面=严格等高并排（总宽 = h*(3/4 + 4/3) ≈ 2.083h）；手机=一行小预览条
