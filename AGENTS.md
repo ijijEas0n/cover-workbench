@@ -25,7 +25,7 @@
 - ✅ **手机端"换样式预览没变 / 导出不是一次两张"修复**：① **无图=样式预览**——drawCanvas 无图分支改为中性渐变背景上按当前样式渲染标题（computeTitle 不再要求 img），换样式/字体/盒子立刻可见，反馈在样式下拉下 `#presetInfo`；② 图片加载不再静默失败——`accept` 限定 png/jpg（iOS 相册选 HEIC 时自动转 JPG），解码失败在 `#imgHint` 明确报错；③ 高级面板 3 个 select（fontSel/boxStyle/textColor）也改 `input`+`change` 双绑；④ **手机导出**：优先 `navigator.share` 系统分享一次带两张（面板「存储图像」直接进相册），失败/取消兜底=结果面板两张图**长按保存** + 700ms 顺序下载（iOS 同步连点两次 `a.click()` 只下一张）；导出质量 0.92→0.95
 - ✅ **"字体根本没变"修复**（用户反馈选宋体后字体不变）：双引擎（Chromium + **WebKit 26.5 = iPhone Safari 同引擎**，webkit-2336 已装）实测字体切换机制本身正常（serif/sans 渲染像素不同）。真实原因：① **字体默认值本来就是宋体**——下拉显示"宋体"时再选宋体，input/change 都不触发（值没变）→ 看起来"没反应"；② 顶部小预览条里宋/黑差别太小看不出来。修法：字体下拉下加**大号字体字样**（`#fontSample` 用同一 fontStack，切换立刻可见）+ **`#fontInfo` 生效自检**（measureText 对比 "Songti SC" vs 泛型 serif，直接显示"Songti SC 已生效 / 此设备无宋体"）；bindSelect 补 `blur` 兜底（同值选择也重绘）；字体栈补全 iOS/Windows 别名；面板底部加 `build` 版本号排查旧缓存页。⚠ 检测字串**必须含拉丁/数字**——纯汉字 1em 全宽，任何字体测宽都一样，曾误报"字体相同"
 
-**默认风格（用户拍板）**：无盒白粗宋体 900 + 阴影 + 中置（textX/Y 0.5）。样式下拉 3 款：默认款（白字宋体）/ 剪映款（白盒黑体）/ 暗盒款（黑盒宋体）。
+- ✅ **宋体真因定位 + 内置字体（根治）**：用户在 iPhone 上发回字体面板截图，自检行显示「当前：宋体 → **此设备无宋体，已用后备衬线字体**」/「黑体 → PingFang SC 已生效」——**iPhone 没有宋体系统字体**，画布回退成系统中文黑体（苹方），所以宋/黑看起来一模一样。修法：**内置 Noto Serif SC Black 子集 webfont**（`fonts/cover-serif-sc.woff2`，1.42MB，覆盖 GB2312 全字集 6763 + ASCII + 常用标点，共 7547 字，OFL 许可见 `fonts/OFL.txt`），`@font-face family:CoverSerif` 放到 `FONT_SERIF` 首位；`init()` 里 `await document.fonts.load('900 100px "CoverSerif"', 标题)` 再首次渲染（CLI 等 `__ready` 故出图一致），字体后到再补渲染一次；自检行改为显示「内置宋体（Noto Serif SC）已生效」。双引擎（Chromium + WebKit）+ CLI 出图实测均为标准宋体（衬线/粗细对比明显）。⚠ 子集外的生僻字会回退系统字体
 
 ## 文件结构
 
@@ -35,6 +35,7 @@ render-cover.mjs    CLI（agent 用）。复用同一份 index.html 渲染，保
 presets/default.json 默认参数快照（无盒白字宋体，用户确认款）
 presets/capcut-light.json 剪映参考款（白盒+黑体，可选用）
 presets/darkbox.json 暗盒宋体款（可选用）
+fonts/cover-serif-sc.woff2  内置宋体（Noto Serif SC Black 子集，1.42MB，OFL）；fonts/OFL.txt 许可
 README.md           README
 test/               样例 + 输出 + smoke/ui 截图自检脚本
 ```
